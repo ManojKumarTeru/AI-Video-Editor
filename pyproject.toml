@@ -1,0 +1,24 @@
+[project]
+name = "ai-editor"
+version = "1.0.0"
+description = "Local AI-powered video editor for YouTube"
+requires-python = ">=3.10"
+dependencies = [
+    "faster-whisper>=1.0.0",
+    "rich>=13.0.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.65.0"
+]
+
+[tool.pyrefly]
+python-interpreter-path = "C:\\Users\\LENOVO T480\\AppData\\Local\\Programs\\Python\\Python314\\python.exe"
+site-package-path = [
+    "C:\\Users\\LENOVO T480\\AppData\\Local\\Programs\\Python\\Python314\\Lib\\site-packages"
+]
+search-path = [
+    "c:\\Users\\LENOVO T480\\OneDrive\\Desktop\\AI-Editor"
+]
+
+[tool.pyrefly.errors]
+missing-import = "ignore"
+missing-attribute = "ignore"

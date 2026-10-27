@@ -1,0 +1,151 @@
+# ==============================================================================
+# AI-Editor .gitignore
+# Prevents large media, temporary render passes, binaries, and caches
+# from bloating your GitHub repository while preserving project directory structure.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Input Raw Media (Heavy video & audio files)
+# ------------------------------------------------------------------------------
+input/video/*
+!input/video/.gitkeep
+input/audio/*
+!input/audio/.gitkeep
+input/music/*
+!input/music/.gitkeep
+
+# ------------------------------------------------------------------------------
+# 2. Output Rendered Media & Generated Artifacts
+# ------------------------------------------------------------------------------
+output/final/*
+!output/final/.gitkeep
+output/subtitles/*
+!output/subtitles/.gitkeep
+output/logs/*
+!output/logs/.gitkeep
+
+# ------------------------------------------------------------------------------
+# 3. Workspace Intermediates (Cuts, synced audio, temp renders, backups)
+# ------------------------------------------------------------------------------
+workspace/temp/*
+!workspace/temp/.gitkeep
+workspace/backup/*
+!workspace/backup/.gitkeep
+workspace/cache/*
+!workspace/cache/.gitkeep
+
+# ------------------------------------------------------------------------------
+# 4. External Binaries & Large Tools (FFmpeg builds ~300MB, zip packages)
+# ------------------------------------------------------------------------------
+tools/*
+!tools/.gitkeep
+!tools/*.py
+!tools/*.sh
+!tools/*.ps1
+*.exe
+*.dll
+*.zip
+*.tar.gz
+*.tar
+*.rar
+*.7z
+
+# ------------------------------------------------------------------------------
+# 5. Global Media File Safeguards (Catches any stray large media)
+# ------------------------------------------------------------------------------
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.wmv
+*.flv
+*.webm
+*.m4v
+
+# Audio files (Allow template SFX inside assets/)
+*.wav
+*.mp3
+*.aac
+*.m4a
+*.flac
+*.ogg
+*.opus
+!assets/**
+
+# ------------------------------------------------------------------------------
+# 6. AI Model Weights & Cache (Faster-Whisper, PyTorch, Hugging Face)
+# ------------------------------------------------------------------------------
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.onnx
+*.h5
+models/
+hf_cache/
+.cache/
+
+# ------------------------------------------------------------------------------
+# 7. Python Runtime, Bytecode & Environments
+# ------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Packaging & Distribution
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing & Quality
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ------------------------------------------------------------------------------
+# 8. Operating System & Editor Metadata
+# ------------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# IDE files (Keep project settings, ignore user-specific states)
+.idea/
+*.swp
+*.swo
+*~
+.vscode/*.log
+.vscode/.history/
+
+# ------------------------------------------------------------------------------
+# 9. Environment Variables & Secrets
+# ------------------------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+*.pem
+*.key

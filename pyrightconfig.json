@@ -1,0 +1,12 @@
+{
+  "include": [
+    "core",
+    "utils",
+    "."
+  ],
+  "extraPaths": [
+    "C:\\Users\\LENOVO T480\\AppData\\Local\\Programs\\Python\\Python314\\Lib\\site-packages"
+  ],
+  "pythonPath": "C:\\Users\\LENOVO T480\\AppData\\Local\\Programs\\Python\\Python314\\python.exe",
+  "reportMissingImports": "none"
+}

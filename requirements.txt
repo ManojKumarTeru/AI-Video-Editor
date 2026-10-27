@@ -1,0 +1,8 @@
+# Local AI-Powered Video Editor — Phase 1 & Core Requirements
+# All packages are free, open-source, and run 100% locally on CPU.
+
+faster-whisper>=1.0.0
+rich>=13.0.0
+pyyaml>=6.0
+tqdm>=4.65.0
+pillow>=9.0.0
