@@ -50,8 +50,9 @@ class BadgeKit:
 @dataclass
 class AudioSoundKit:
     pop_volume: float = 0.22
-    whoosh_volume: float = 0.18
-    thump_volume: float = 0.32
+    flash_volume: float = 0.45
+    whoosh_volume: float = 0.40
+    thump_volume: float = 0.35
     default_pop_variant: str = "clean"
     default_whoosh_variant: str = "fast"
 
@@ -109,8 +110,8 @@ CREATOR_ELITE_KIT = ProductionKit(
     ),
     audio=AudioSoundKit(
         pop_volume=0.24,
-        whoosh_volume=0.18,
-        thump_volume=0.32
+        whoosh_volume=0.42,
+        thump_volume=0.35
     )
 )
 
@@ -143,8 +144,8 @@ NEON_CYBER_KIT = ProductionKit(
     ),
     audio=AudioSoundKit(
         pop_volume=0.22,
-        whoosh_volume=0.20,
-        thump_volume=0.35
+        whoosh_volume=0.45,
+        thump_volume=0.38
     )
 )
 
@@ -177,8 +178,8 @@ MINIMAL_STUDIO_KIT = ProductionKit(
     ),
     audio=AudioSoundKit(
         pop_volume=0.18,
-        whoosh_volume=0.14,
-        thump_volume=0.26
+        whoosh_volume=0.32,
+        thump_volume=0.28
     )
 )
 

@@ -177,15 +177,36 @@ class AudioPipeline:
         output_wav_path = Path(output_wav_path).resolve()
         output_wav_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Build mastering filter graph
-        audio_filters = [
-            f"highpass=f={self.cfg.high_pass_hz}",
-            f"lowpass=f={self.cfg.low_pass_hz}",
-        ]
+        # Build mastering filter graph with human-editor noise cleanup & comfort
+        audio_filters = []
+
+        # 1. 100ms Micro Audio Fade-In (eliminates clicks, pops, and sudden handling thumps at start)
+        fade_in = getattr(self.cfg, "micro_fade_in_sec", 0.10)
+        if fade_in > 0:
+            audio_filters.append(f"afade=t=in:ss=0:d={fade_in:.2f}")
+
+        # 2. HPF 80Hz (cuts handling thumps & desk rumble) & LPF 12kHz (cuts high-frequency hiss)
+        audio_filters.append(f"highpass=f={self.cfg.high_pass_hz}")
+        audio_filters.append(f"lowpass=f={self.cfg.low_pass_hz}")
+
+        # 3. Spectral Denoising (afftdn eliminates room tone, fan hum, and phone preamp noise)
+        if getattr(self.cfg, "spectral_denoise_enabled", True):
+            nr = getattr(self.cfg, "spectral_denoise_amount", 12.0)
+            nf = getattr(self.cfg, "spectral_noise_floor", -25.0)
+            audio_filters.append(f"afftdn=nr={nr}:nf={nf}")
+
+        # 4. Pre-Mastering Noise Gate (agate silences microphone handling rustle & breaths below speech threshold)
+        if getattr(self.cfg, "noise_gate_enabled", True):
+            gate_thresh = getattr(self.cfg, "noise_gate_threshold_db", -36.0)
+            gate_att = getattr(self.cfg, "noise_gate_attack_ms", 10)
+            gate_rel = getattr(self.cfg, "noise_gate_release_ms", 120)
+            audio_filters.append(f"agate=threshold={gate_thresh}dB:ratio=4:attack={gate_att}:release={gate_rel}")
+
+        # 5. Dynamic de-esser tames harsh mic sibilance on S/T sounds
         if getattr(self.cfg, "deesser_enabled", True):
-            # Dynamic de-esser tames harsh mic sibilance on S/T sounds
             audio_filters.append("deesser=i=0.7:f=0.5:m=0.5:s=o")
 
+        # 6. EQ presence boost, soft-knee compression, and EBU R128 loudness normalization
         audio_filters.extend([
             f"equalizer=f=3000:t=q:w=1.5:g={self.cfg.presence_boost_db}",
             f"acompressor=threshold={self.cfg.compression_threshold_db}dB:ratio={self.cfg.compression_ratio}:attack=15:release=120:makeup=2dB",
@@ -278,15 +299,32 @@ class AudioPipeline:
         sfx_track = np.zeros(total_samples, dtype=np.float32)
 
         def load_sfx_samples(path: Path) -> np.ndarray:
+            path = Path(path)
+            if path.suffix.lower() == ".mp3":
+                temp_wav = config.TEMP_DIR / f"{path.stem}_converted.wav"
+                if not temp_wav.exists() or temp_wav.stat().st_mtime < path.stat().st_mtime:
+                    cmd = [
+                        "ffmpeg", "-y",
+                        "-i", str(path),
+                        "-ar", str(sample_rate),
+                        "-ac", "1",
+                        "-c:a", "pcm_s16le",
+                        str(temp_wav)
+                    ]
+                    subprocess.run(cmd, capture_output=True, check=True)
+                path = temp_wav
+
             with wave.open(str(path), "rb") as wf:
                 raw = wf.readframes(wf.getnframes())
                 return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
 
         # Pre-load variants by category
         pop_vol = getattr(self.cfg, "sfx_pop_volume", 0.22)
-        whoosh_vol = getattr(self.cfg, "sfx_whoosh_volume", 0.18)
-        thump_vol = getattr(self.cfg, "sfx_thump_volume", 0.32)
+        whoosh_vol = getattr(self.cfg, "sfx_whoosh_volume", 0.40)
+        flash_vol = getattr(self.cfg, "sfx_flash_volume", 0.45)
+        thump_vol = getattr(self.cfg, "sfx_thump_volume", 0.35)
 
+        flash_variants = [load_sfx_samples(p) * flash_vol for p in sfx_kit.get("flash", [])]
         pop_variants = [load_sfx_samples(p) * pop_vol for p in sfx_kit.get("pops", [])]
         whoosh_variants = [load_sfx_samples(p) * whoosh_vol for p in sfx_kit.get("whooshes", [])]
         accent_variants = [load_sfx_samples(p) * (pop_vol * 0.95) for p in sfx_kit.get("accents", [])]
@@ -302,7 +340,17 @@ class AudioPipeline:
             if idx >= total_samples:
                 continue
 
-            if sfx_type == "whoosh" and whoosh_variants:
+            s_arr = None
+            if sfx_type in ("camera_flash", "flash", "shutter") and flash_variants:
+                # Authentic Studio DSLR Mechanical Shutter & Xenon Flash Pop for Zoom-In
+                s_arr = flash_variants[0]
+            elif sfx_type in ("whoosh_in", "zoom_in") and (flash_variants or whoosh_variants):
+                # Default to camera flash for punch-in if available, otherwise whoosh
+                s_arr = flash_variants[0] if flash_variants else whoosh_variants[0]
+            elif sfx_type in ("whoosh_out", "zoom_out") and len(whoosh_variants) > 1:
+                # Soft 250ms airy release whoosh for pull-back to wide
+                s_arr = whoosh_variants[1]
+            elif sfx_type == "whoosh" and whoosh_variants:
                 s_arr = whoosh_variants[whoosh_idx % len(whoosh_variants)]
                 whoosh_idx += 1
             elif sfx_type in ("thump", "impact") and impact_variants:
@@ -315,7 +363,8 @@ class AudioPipeline:
                 # Default to rotating pop variants (clean, bubble, wooden, snap)
                 s_arr = pop_variants[pop_idx % len(pop_variants)]
                 pop_idx += 1
-            else:
+
+            if s_arr is None or len(s_arr) == 0:
                 continue
 
             end_idx = min(idx + len(s_arr), total_samples)

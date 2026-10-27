@@ -10,6 +10,7 @@ import sys
 # Suppress HuggingFace hub symlink warning on Windows before importing AI libs
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
+import re
 import json
 import hashlib
 import wave
@@ -113,12 +114,25 @@ class Transcriber:
                 )
 
             print(f"Loading faster-whisper model '{self.cfg.model_size}' (device={self.cfg.device}, compute={self.cfg.compute_type})...")
-            self.model = WhisperModel(
-                model_size_or_path=self.cfg.model_size,
-                device=self.cfg.device,
-                compute_type=self.cfg.compute_type,
-                cpu_threads=self.cfg.cpu_threads
-            )
+            try:
+                self.model = WhisperModel(
+                    model_size_or_path=self.cfg.model_size,
+                    device=self.cfg.device,
+                    compute_type=self.cfg.compute_type,
+                    cpu_threads=self.cfg.cpu_threads
+                )
+            except Exception as e:
+                if self.cfg.model_size != "small":
+                    print(f"⚠️ Could not load '{self.cfg.model_size}' ({e}). Falling back to 'small' model...")
+                    self.cfg.model_size = "small"
+                    self.model = WhisperModel(
+                        model_size_or_path="small",
+                        device=self.cfg.device,
+                        compute_type=self.cfg.compute_type,
+                        cpu_threads=self.cfg.cpu_threads
+                    )
+                else:
+                    raise
             print("Model loaded successfully into memory.")
         return self.model
 
@@ -130,15 +144,18 @@ class Transcriber:
         input_media_path = Path(input_media_path).resolve()
         config.ensure_directories()
 
-        # Step 1: Check cache
+        # Step 1: Check cache (include task and language so switching translation never uses stale bad cache)
         file_hash = compute_file_hash(input_media_path)
-        cache_file = config.CACHE_DIR / f"{input_media_path.stem}_{file_hash}.json"
+        task_name = getattr(self.cfg, "task", "translate")
+        lang_name = str(getattr(self.cfg, "language", "te") or "auto")
+        cache_file = config.CACHE_DIR / f"{input_media_path.stem}_{file_hash}_{task_name}_{lang_name}.json"
 
         if cache_file.exists() and not force_recompute:
             print(f"Found cached transcription for '{input_media_path.name}'. Loading from cache...")
             with open(cache_file, "r", encoding="utf-8") as f:
                 cached_data = json.load(f)
-            return [
+            from core.tanglish import translate_tanglish_segments
+            loaded_segs = [
                 SubtitleSegment(
                     start=seg["start"],
                     end=seg["end"],
@@ -147,6 +164,7 @@ class Transcriber:
                 )
                 for seg in cached_data
             ]
+            return translate_tanglish_segments(loaded_segs)
 
         # Step 2: Extract audio as 16kHz mono WAV for Whisper
         temp_wav = config.TEMP_DIR / f"{input_media_path.stem}_16k.wav"
@@ -165,8 +183,12 @@ class Transcriber:
 
         # Step 4: Run inference
         model = self._get_model()
-        print(f"Transcribing '{input_media_path.name}' with word-level timestamps...")
-        
+        task = getattr(self.cfg, "task", "translate")
+        target_lang = self.cfg.language if self.cfg.language not in (None, "auto") else None
+        init_prompt = getattr(self.cfg, "initial_prompt", "Telugu and English tech conversation, modern YouTube subtitles in English script.")
+
+        print(f"Transcribing '{input_media_path.name}' (task={task}, language={target_lang or 'auto'}, model={self.cfg.model_size})...")
+
         segments_gen, info = model.transcribe(
             audio_array,
             beam_size=self.cfg.beam_size,
@@ -176,30 +198,44 @@ class Transcriber:
                 min_silence_duration_ms=self.cfg.vad_min_silence_ms,
                 speech_pad_ms=self.cfg.vad_speech_pad_ms
             ),
-            language=self.cfg.language
+            language=target_lang,
+            task=task,
+            initial_prompt=init_prompt,
+            condition_on_previous_text=False,
+            no_speech_threshold=0.6
         )
 
         detected_lang = info.language
         lang_prob = round(info.language_probability * 100, 1)
-        print(f"Detected speech language: {detected_lang.upper()} ({lang_prob}% confidence)")
+        print(f"Detected speech language: {detected_lang.upper()} ({lang_prob}% confidence) -> Output: English script")
 
         parsed_segments: List[SubtitleSegment] = []
         for segment in segments_gen:
             words = []
             if segment.words:
                 for w in segment.words:
-                    words.append(WordTimestamp(
-                        word=w.word.strip(),
-                        start=round(w.start, 2),
-                        end=round(w.end, 2),
-                        probability=round(w.probability, 2)
-                    ))
-            parsed_segments.append(SubtitleSegment(
-                start=round(segment.start, 2),
-                end=round(segment.end, 2),
-                text=segment.text.strip(),
-                words=words
-            ))
+                    clean_w = re.sub(r"[【】「」\[\]]", "", w.word).strip()
+                    if clean_w:
+                        words.append(WordTimestamp(
+                            word=clean_w,
+                            start=round(w.start, 2),
+                            end=round(w.end, 2),
+                            probability=round(w.probability, 2)
+                        ))
+            clean_text = re.sub(r"[【】「」\[\]]", "", segment.text).strip()
+            if clean_text:
+                parsed_segments.append(SubtitleSegment(
+                    start=round(segment.start, 2),
+                    end=round(segment.end, 2),
+                    text=clean_text,
+                    words=words
+                ))
+
+        # Step 4.5: Tanglish Semantic Translation & Normalization
+        # Converts code-switched Telugu words (e.g. 'miru' -> 'you', 'software job lo' -> 'in a software job')
+        # into natural English meaning while preserving word-level animation timestamps
+        from core.tanglish import translate_tanglish_segments
+        parsed_segments = translate_tanglish_segments(parsed_segments)
 
         # Step 5: Save cache
         with open(cache_file, "w", encoding="utf-8") as f:

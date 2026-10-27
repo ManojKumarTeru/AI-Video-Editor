@@ -70,16 +70,18 @@ def ensure_directories():
 
 @dataclass
 class TranscriptionConfig:
-    model_size: str = "small"          # tiny, base, small, medium
+    model_size: str = "large-v3-turbo"          # tiny, base, small, medium, large-v3-turbo
     device: str = "cpu"                # cpu or cuda
     compute_type: str = "int8"         # int8 quantization for CPU performance
     cpu_threads: int = 4               # optimal for 8-core CPU without freezing system
-    language: Optional[str] = None     # None for auto-detection
+    language: Optional[str] = "te"     # Default to Telugu ("te") or "auto"
+    task: str = "translate"            # Default: translates foreign speech (e.g. Telugu) to English script
+    initial_prompt: str = "Telugu speech translated into fluent, modern English subtitles for YouTube video."
     beam_size: int = 5
     word_timestamps: bool = True
     vad_filter: bool = True            # Voice Activity Detection (skips silence)
-    vad_min_silence_ms: int = 500
-    vad_speech_pad_ms: int = 200
+    vad_min_silence_ms: int = 400
+    vad_speech_pad_ms: int = 250
 
 
 @dataclass
@@ -121,14 +123,26 @@ class AudioConfig:
     presence_boost_db: float = 2.5       # Vocal clarity boost at 3000 Hz
     compression_threshold_db: float = -21.0
     compression_ratio: float = 3.0       # Gentle 3:1 voice leveling
+
+    # Human-Grade Noise Suppression & Audio Comfort
+    noise_gate_enabled: bool = True      # Silences phone handling noise, rustling, and loud breaths
+    noise_gate_threshold_db: float = -36.0 # Mutes any sound quieter than -36 dB
+    noise_gate_attack_ms: int = 10
+    noise_gate_release_ms: int = 120
+    spectral_denoise_enabled: bool = True # Removes background room hiss, AC hum, and preamp noise
+    spectral_denoise_amount: float = 12.0 # afftdn noise reduction in dB
+    spectral_noise_floor: float = -25.0
+    micro_fade_in_sec: float = 0.10      # 100ms micro audio fade-in to prevent harsh start clicks/pops
+
     music_base_volume: float = 0.16      # Background music baseline level (16%)
     ducking_ratio: float = 6.0           # Sidechain ducking compression ratio
     ducking_threshold: float = 0.03      # Sensitivity threshold for speech ducking
     deesser_enabled: bool = True         # Vocal de-esser tames harsh S/T sibilance
     sfx_enabled: bool = True             # Micro-sound effects for badge popups & camera zooms
     sfx_pop_volume: float = 0.22         # Subtle pop level
-    sfx_whoosh_volume: float = 0.18      # Subtle whoosh level
-    sfx_thump_volume: float = 0.32       # Sub-bass thump impact level
+    sfx_flash_volume: float = 0.45       # Camera shutter & electronic flash cut level (45%)
+    sfx_whoosh_volume: float = 0.40      # Tactile whoosh cut level (40%)
+    sfx_thump_volume: float = 0.35       # Sub-bass thump impact level
 
 
 @dataclass

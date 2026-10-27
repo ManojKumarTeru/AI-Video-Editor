@@ -124,13 +124,25 @@ class SmartEditor:
         conservative_cuts: List[CutInterval] = []
 
         for sil in raw_silences:
-            # Apply pro margins
-            cut_start = sil.start + self.cfg.lead_out_margin
-            cut_end = sil.end - self.cfg.lead_in_margin
+            # 5+ YOE Human Rule: If silence starts at video head (t <= 0.15s),
+            # there is no preceding speech to preserve room tone for. Cut from 0.0s
+            # directly up to right before the first spoken syllable (leaving 150ms lead-in)!
+            if sil.start <= 0.15:
+                cut_start = 0.0
+                cut_end = max(0.0, sil.end - 0.15)
+            elif sil.end >= total_duration - 0.15:
+                # Video tail silence: no following speech, cut cleanly to end of video
+                cut_start = sil.start + self.cfg.lead_out_margin
+                cut_end = total_duration
+            else:
+                # Mid-timeline conversational pause: preserve natural breath margins
+                cut_start = sil.start + self.cfg.lead_out_margin
+                cut_end = sil.end - self.cfg.lead_in_margin
+
             cut_dur = cut_end - cut_start
 
             # Only cut if there is substantial dead air remaining after padding
-            if cut_dur >= 0.25 and cut_start < total_duration:
+            if cut_dur >= 0.20 and cut_start < total_duration:
                 cut_start = max(0.0, cut_start)
                 cut_end = min(total_duration, cut_end)
                 conservative_cuts.append(CutInterval(

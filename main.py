@@ -77,6 +77,7 @@ def cmd_process(args):
     current_video = raw_video
     audio_pipe = AudioPipeline(config.AudioConfig(
         sfx_pop_volume=selected_kit.audio.pop_volume,
+        sfx_flash_volume=getattr(selected_kit.audio, "flash_volume", 0.45),
         sfx_whoosh_volume=selected_kit.audio.whoosh_volume,
         sfx_thump_volume=selected_kit.audio.thump_volume
     ))
@@ -113,8 +114,15 @@ def cmd_process(args):
     # --- STEP 5: Transcribe Speech & Format Subtitles ---
     # Transcribing the cut timeline guarantees 100% frame-perfect subtitle alignment!
     print("\n[4/7] 📝 Transcribing speech with word-level timestamps...")
-    transcriber = Transcriber(config.TranscriptionConfig(model_size=args.model))
-    segments = transcriber.transcribe(current_video)
+    trans_lang = getattr(args, "language", "te")
+    trans_task = getattr(args, "task", "translate")
+    trans_force = getattr(args, "force", False)
+    transcriber = Transcriber(config.TranscriptionConfig(
+        model_size=args.model,
+        language=trans_lang,
+        task=trans_task
+    ))
+    segments = transcriber.transcribe(current_video, force_recompute=trans_force)
 
     srt_path = config.OUTPUT_SUBTITLES_DIR / f"{raw_video.stem}.srt"
     ass_path = config.OUTPUT_SUBTITLES_DIR / f"{raw_video.stem}.ass"
@@ -151,16 +159,25 @@ def cmd_process(args):
     # Plan dynamic virtual multi-cam punch-in cuts from speech segments
     zoom_intervals = []
     if not getattr(args, "no_zooms", False) and segments:
+        is_shorts = (args.format == "shorts")
+        z_wide_dur = 1.8 if is_shorts else getattr(args, "zoom_interval", 4.0)
+        z_zoom_dur = 3.0 if is_shorts else getattr(args, "zoom_duration", 3.8)
+        z_blackout_start = 1.0 if is_shorts else 2.5
+        z_blackout_end = 1.0 if is_shorts else 2.5
+
         zoom_intervals = plan_zooms(
             segments,
             total_duration=orig_duration,
             scale=getattr(args, "zoom_scale", 1.15),
-            zoom_duration=getattr(args, "zoom_duration", 3.8),
-            min_wide_duration=getattr(args, "zoom_interval", 5.5)
+            zoom_duration=z_zoom_dur,
+            min_wide_duration=z_wide_dur,
+            blackout_start=z_blackout_start,
+            blackout_end=z_blackout_end
         )
         if zoom_intervals:
-            zoom_summaries = [f"{z.start_time:.1f}s-{z.end_time:.1f}s" for z in zoom_intervals]
-            print(f"🎬 Directed {len(zoom_intervals)} virtual multi-cam punch-in shot(s): {', '.join(zoom_summaries)}")
+            print(f"🎬 Directed {len(zoom_intervals)} semantic attention punch-in shot(s):")
+            for z in zoom_intervals:
+                print(f"   🎥 [{z.start_time:.2f}s - {z.end_time:.2f}s]: {z.reason}")
 
     # Detect spoken analogies & visual metaphor B-roll cards
     broll_overlays = []
@@ -196,7 +213,10 @@ def cmd_process(args):
         for b in broll_overlays:
             sfx_events.append((b.start_time, "pop"))
         for z in zoom_intervals:
-            sfx_events.append((z.start_time, "whoosh"))
+            # Camera Flash & Shutter hits right on the punch-in cut (18ms pre-roll for mirror flip)
+            sfx_events.append((max(0.0, z.start_time - 0.018), "camera_flash"))
+            # Smooth pull-back airy whoosh for zoom out
+            sfx_events.append((max(0.0, z.end_time - 0.05), "whoosh_out"))
         sfx_events.sort(key=lambda x: x[0])
 
     # --- STEP 6: Audio Pipeline & Mastering ---
@@ -367,7 +387,13 @@ def cmd_inspect(args):
 def cmd_transcribe(args):
     """Transcribe a specific media file or all files in input/video."""
     config.ensure_directories()
-    transcriber = Transcriber(config.TranscriptionConfig(model_size=args.model))
+    trans_lang = getattr(args, "language", "te")
+    trans_task = getattr(args, "task", "translate")
+    transcriber = Transcriber(config.TranscriptionConfig(
+        model_size=args.model,
+        language=trans_lang,
+        task=trans_task
+    ))
 
     if args.file:
         target_files = [Path(args.file)]
@@ -646,7 +672,10 @@ def main():
     p_process.add_argument("--format", default="youtube", choices=["youtube", "shorts"], help="Output format: youtube (16:9) or shorts (9:16)")
     p_process.add_argument("--speaker", default="Content Creator", help="Speaker name for lower third")
     p_process.add_argument("--title", default="Video Host", help="Speaker title for lower third")
-    p_process.add_argument("--model", default="small", choices=["tiny", "base", "small", "medium"], help="Whisper model size")
+    p_process.add_argument("--model", default="large-v3-turbo", choices=["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"], help="Whisper model size (default: large-v3-turbo)")
+    p_process.add_argument("--language", "-l", default="te", help="Input speech language (default: te for Telugu, en for English, auto for auto-detect)")
+    p_process.add_argument("--task", default="translate", choices=["translate", "transcribe"], help="Subtitle task: translate to English script or transcribe")
+    p_process.add_argument("--force", action="store_true", help="Force recomputation of transcription, bypassing cache")
     p_process.add_argument("--crf", type=int, default=18, help="Quality factor (default: 18, visually lossless)")
     p_process.add_argument("--no-cut", action="store_true", help="Skip dead-air removal")
     p_process.add_argument("--no-subs", action="store_true", help="Skip caption burning")
@@ -681,7 +710,9 @@ def main():
     # Command: transcribe
     p_transcribe = subparsers.add_parser("transcribe", help="Transcribe speech and generate SRT/ASS subtitles")
     p_transcribe.add_argument("--file", "-f", type=str, default=None, help="Path to specific video/audio file")
-    p_transcribe.add_argument("--model", "-m", type=str, default="small", choices=["tiny", "base", "small", "medium"], help="Whisper model size")
+    p_transcribe.add_argument("--model", "-m", type=str, default="large-v3-turbo", choices=["tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"], help="Whisper model size")
+    p_transcribe.add_argument("--language", "-l", default="te", help="Input speech language (default: te for Telugu)")
+    p_transcribe.add_argument("--task", default="translate", choices=["translate", "transcribe"], help="Subtitle task: translate to English script or transcribe")
     p_transcribe.add_argument("--force", action="store_true", help="Force recomputation bypassing cache")
     p_transcribe.set_defaults(func=cmd_transcribe)
 
