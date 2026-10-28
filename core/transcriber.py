@@ -185,7 +185,7 @@ class Transcriber:
         model = self._get_model()
         task = getattr(self.cfg, "task", "translate")
         target_lang = self.cfg.language if self.cfg.language not in (None, "auto") else None
-        init_prompt = getattr(self.cfg, "initial_prompt", "Telugu and English tech conversation, modern YouTube subtitles in English script.")
+        init_prompt = getattr(self.cfg, "initial_prompt", "English subtitles only. Professional YouTube video captions in pure English script. No Telugu script.")
 
         print(f"Transcribing '{input_media_path.name}' (task={task}, language={target_lang or 'auto'}, model={self.cfg.model_size})...")
 
@@ -215,7 +215,8 @@ class Transcriber:
             if segment.words:
                 for w in segment.words:
                     clean_w = re.sub(r"[【】「」\[\]]", "", w.word).strip()
-                    if clean_w:
+                    # Strictly filter out any words containing Telugu or Indic script characters
+                    if clean_w and not re.search(r"[\u0C00-\u0C7F\u0900-\u0D7F]", clean_w):
                         words.append(WordTimestamp(
                             word=clean_w,
                             start=round(w.start, 2),
@@ -223,7 +224,10 @@ class Transcriber:
                             probability=round(w.probability, 2)
                         ))
             clean_text = re.sub(r"[【】「」\[\]]", "", segment.text).strip()
-            if clean_text:
+            # Strictly remove any Telugu/Indic script characters from segment text
+            clean_text = re.sub(r"[\u0C00-\u0C7F\u0900-\u0D7F]+", "", clean_text).strip()
+            clean_text = re.sub(r"\s+", " ", clean_text).strip(" :,-.")
+            if clean_text and words:
                 parsed_segments.append(SubtitleSegment(
                     start=round(segment.start, 2),
                     end=round(segment.end, 2),
@@ -303,9 +307,14 @@ class Transcriber:
         lines = []
         idx = 1
         for seg in formatted_segments:
+            # Strictly filter out any Telugu or Indic characters or blank entries
+            clean_text = re.sub(r"[\u0C00-\u0C7F\u0900-\u0D7F]+", "", seg.text).strip()
+            clean_text = re.sub(r"\s+", " ", clean_text).strip(" :,-.")
+            if not clean_text:
+                continue
             lines.append(str(idx))
             lines.append(f"{format_srt_time(seg.start)} --> {format_srt_time(seg.end)}")
-            lines.append(seg.text)
+            lines.append(clean_text)
             lines.append("")
             idx += 1
 
@@ -360,19 +369,23 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         sec_color = s_cfg.secondary_color if s_cfg.secondary_color.endswith("&") else f"{s_cfg.secondary_color}&"
 
         for seg in formatted_segments:
-            if not seg.words:
-                start_str = format_ass_time(seg.start)
-                end_str = format_ass_time(seg.end)
-                event_lines.append(f"Dialogue: 0,{start_str},{end_str},ProCaptions,,0,0,0,,{seg.text}")
+            # Strictly verify segment contains valid English words and no Telugu script
+            clean_seg_text = re.sub(r"[\u0C00-\u0C7F\u0900-\u0D7F]+", "", seg.text).strip()
+            clean_seg_text = re.sub(r"\s+", " ", clean_seg_text).strip(" :,-.")
+            valid_words = [
+                w for w in (seg.words or [])
+                if not re.search(r"[\u0C00-\u0C7F\u0900-\u0D7F]", w.word) and w.word.strip()
+            ]
+            if not clean_seg_text or not valid_words:
                 continue
 
             if getattr(s_cfg, "kinetic_bounce_enabled", True):
                 # 5+ YOE Kinetic Word-by-Word Pop: Spoken word scales up by 120%, thickens stroke & glows accent color
-                num_words = len(seg.words)
-                for i, active_w in enumerate(seg.words):
+                num_words = len(valid_words)
+                for i, active_w in enumerate(valid_words):
                     w_start = active_w.start
                     if i + 1 < num_words:
-                        next_w = seg.words[i + 1]
+                        next_w = valid_words[i + 1]
                         if next_w.start > w_start and (next_w.start - active_w.end) < 0.40:
                             w_end = next_w.start
                         else:
@@ -387,7 +400,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     end_str = format_ass_time(w_end)
 
                     chunk_display = []
-                    for j, w in enumerate(seg.words):
+                    for j, w in enumerate(valid_words):
                         if j == i:
                             # Active popping word with 120% spring scale, heavy stroke contrast & vibrant color accent
                             pop_word = f"{{\\c{sec_color}\\b1\\bord5\\shad3\\fscx120\\fscy120\\t(0,100,\\fscx108\\fscy108)}}{w.word}{{\\r}}"
@@ -402,7 +415,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 start_str = format_ass_time(seg.start)
                 end_str = format_ass_time(seg.end)
                 kf_parts = []
-                for w in seg.words:
+                for w in valid_words:
                     duration_cs = max(1, int(round((w.end - w.start) * 100)))
                     kf_parts.append(f"{{\\kf{duration_cs}}}{w.word}")
                 dialogue_text = " ".join(kf_parts)

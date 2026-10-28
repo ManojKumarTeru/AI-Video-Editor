@@ -171,6 +171,11 @@ def translate_words_in_place(words: List[Any]) -> List[Any]:
 
         if not matched:
             curr_word = words[i]
+            # Under NO circumstances allow Telugu or Indic script characters into subtitles
+            if re.search(r"[\u0C00-\u0C7F\u0900-\u0D7F]", curr_word.word):
+                i += 1
+                continue
+
             clean_token = re.sub(r"[^\w]", "", curr_word.word).lower().strip()
 
             if clean_token in WORD_TRANSLATIONS:
@@ -195,18 +200,21 @@ def translate_words_in_place(words: List[Any]) -> List[Any]:
     return new_words
 
 
-def translate_tanglish_segment(segment: Any) -> Any:
+def translate_tanglish_segment(segment: Any) -> Optional[Any]:
     """
     Translates a SubtitleSegment into natural English meaning.
     Translates words in-place so EVERY word maintains its exact acoustic sync with the audio.
+    Strips any Telugu script completely.
     """
     from core.transcriber import SubtitleSegment
 
     if not segment.words:
-        return segment
+        return None
 
     # Translate words in-place with exact Whisper timestamps
     translated_words = translate_words_in_place(segment.words)
+    if not translated_words:
+        return None
 
     # Reconstruct the sentence text from the accurately timed words
     new_text = " ".join([w.word for w in translated_words])
@@ -219,7 +227,12 @@ def translate_tanglish_segment(segment: Any) -> Any:
             capped.append(s[0].upper() + s[1:])
         else:
             capped.append(s)
-    clean_sentence = "".join(capped)
+    clean_sentence = "".join(capped).strip()
+
+    # Double check for any residual Telugu/Indic characters
+    clean_sentence = re.sub(r"[\u0C00-\u0C7F\u0900-\u0D7F]+", "", clean_sentence).strip(" :,-.")
+    if not clean_sentence:
+        return None
 
     return SubtitleSegment(
         start=segment.start,
@@ -234,16 +247,19 @@ def translate_tanglish_segments(segments: List[Any]) -> List[Any]:
     Processes all segments in a transcript, filtering out noise hallucinations
     and translating all Tanglish words and phrases into natural English meaning
     with frame-perfect acoustic sync.
+    Strictly removes any Telugu language subtitles.
     """
     translated: List[Any] = []
     for seg in segments:
+        # Check if segment is empty or just Telugu script
+        clean_no_indic = re.sub(r"[\u0C00-\u0C7F\u0900-\u0D7F]+", "", seg.text).strip()
         # Filter out standalone low-confidence noise hallucinations like "ount!"
-        clean_text = re.sub(r"[【】「」\[\]!?,.]", "", seg.text).strip().lower()
-        if clean_text in ("ount", "chien", "olesome", "") and (seg.end - seg.start) < 0.8:
+        clean_text = re.sub(r"[【】「」\[\]!?,.]", "", clean_no_indic).strip().lower()
+        if not clean_text or (clean_text in ("ount", "chien", "olesome", "") and (seg.end - seg.start) < 0.8):
             continue
 
         trans_seg = translate_tanglish_segment(seg)
-        if trans_seg.words:
+        if trans_seg and trans_seg.words and trans_seg.text.strip():
             translated.append(trans_seg)
 
     return translated
