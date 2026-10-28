@@ -147,6 +147,7 @@ class AudioConfig:
 
 @dataclass
 class VisualsConfig:
+    format: str = "landscape"            # "landscape" (16:9) or "shorts" (9:16)
     intro_enabled: bool = True
     intro_title: str = "AI Video Editor"
     intro_subtitle: str = "Automated Production Pipeline"
@@ -160,8 +161,8 @@ class VisualsConfig:
     lower_third_enabled: bool = True
     speaker_name: str = "Content Creator"
     speaker_title: str = "Video Host"
-    lower_third_start: float = 2.0
-    lower_third_duration: float = 5.0
+    lower_third_start: float = 1.0       # Appears at 1.0s
+    lower_third_duration: float = 4.0    # Holds for 4.0s (exits at 5.0s)
 
     watermark_enabled: bool = True
     watermark_text: str = "@MyChannel"

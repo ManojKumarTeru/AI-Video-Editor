@@ -234,6 +234,7 @@ def cmd_process(args):
     # --- STEP 6: Visual Polish, Branding & Formatting ---
     print(f"\n[6/7] 🎨 Applying visual polish (format={args.format})...")
     visual_engine = VisualEngine(config.VisualsConfig(
+        format=args.format,
         intro_enabled=(not args.no_intro and args.format != "shorts"),
         outro_enabled=(not args.no_outro and args.format != "shorts"),
         lower_third_enabled=not args.no_branding,

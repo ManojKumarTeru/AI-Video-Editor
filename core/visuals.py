@@ -432,30 +432,38 @@ class VisualEngine:
             if getattr(self.cfg, "vignette_enabled", True):
                 filters.append(f"vignette=angle={vignette_angle}:eval=init")
 
-        # 1. Lower Third Graphic (scaled dynamically to resolution)
+        # 1. Lower Third / Host ID Intro Graphic (scaled dynamically to resolution)
         if self.cfg.lower_third_enabled:
-            box_x = int(width * 0.05)
-            box_y = int(height * 0.82)
-            box_w = int(width * 0.40)
-            box_h = int(height * 0.085)
-            bar_w = max(4, int(width * 0.005))
+            is_shorts = (getattr(self.cfg, "format", "landscape") == "shorts" or height > width)
 
-            name_x = int(width * 0.07)
-            name_y = int(height * 0.832)
-            title_x = int(width * 0.07)
-            title_y = int(height * 0.872)
+            box_x = int(width * 0.05)
+            # In Shorts, position in upper-left (height * 0.12) to leave the entire bottom area
+            # unobstructed for subtitles, while maintaining balanced broadcaster framing!
+            # In 16:9 Long-form, position at standard lower-third (height * 0.82)
+            box_y = int(height * 0.12) if is_shorts else int(height * 0.82)
+            box_h = int(height * 0.082)
+            bar_w = max(4, int(width * 0.005))
 
             name_size = max(16, int(height * 0.032))
             title_size = max(11, int(height * 0.019))
 
+            name_x = box_x + bar_w + int(width * 0.018)
+            name_y = box_y + int(box_h * 0.16)
+            title_x = name_x
+            title_y = box_y + int(box_h * 0.56)
+
+            # Proportional badge width to cleanly wrap speaker name & title with comfortable padding
+            est_text_chars = max(len(self.cfg.speaker_name), len(self.cfg.speaker_title))
+            est_tw = int(est_text_chars * name_size * 0.68)
+            min_w = int(width * 0.22) if is_shorts else int(width * 0.26)
+            box_w = max(min_w, (name_x - box_x) + est_tw + int(width * 0.035))
+
             esc_name = escape_drawtext(self.cfg.speaker_name)
             esc_title = escape_drawtext(self.cfg.speaker_title)
 
-            accent_line_col = getattr(self.cfg, "retention_bar_color", "0x00F0FF")
-            # 5+ YOE Kinetic Lower-Third: Box expands smoothly from left over 0.28s, text fades in with staggered timing
-            box_w_anim = f"if(lt(t,{lt_start + 0.28:.2f}), {box_w}*(t-{lt_start:.2f})/0.28, {box_w})"
-            filters.append(f"drawbox=x={box_x}:y={box_y}:w='{box_w_anim}':h={box_h}:color=0x0b0f17@0.92:t=fill:enable='between(t,{lt_start},{lt_end})'")
-            filters.append(f"drawbox=x={box_x}:y={box_y}:w='{box_w_anim}':h={box_h}:color=0x334155@0.85:t=1:enable='between(t,{lt_start},{lt_end})'")
+            accent_line_col = getattr(self.cfg, "retention_bar_color", "0xFFD700")
+            # Solid, clean glassmorphic badge card (no stray outline lines across the frame)
+            filters.append(f"drawbox=x={box_x}:y={box_y}:w={box_w}:h={box_h}:color=0x0b0f17@0.92:t=fill:enable='between(t,{lt_start},{lt_end})'")
             filters.append(f"drawbox=x={box_x}:y={box_y}:w={bar_w}:h={box_h}:color={accent_line_col}@1.0:t=fill:enable='between(t,{lt_start},{lt_end})'")
             name_alpha = f"if(lt(t,{lt_start + 0.12:.2f}), 0, if(lt(t,{lt_start + 0.38:.2f}), (t-{lt_start + 0.12:.2f})/0.26, if(gt(t,{lt_end - 0.22:.2f}), ({lt_end:.2f}-t)/0.22, 1)))"
             filters.append(f"drawtext=text='{esc_name}':x={name_x}:y={name_y}:fontsize={name_size}:fontcolor=white:shadowcolor=black@0.85:shadowx=2:shadowy=2:alpha='{name_alpha}':enable='between(t,{lt_start},{lt_end})'")
@@ -474,9 +482,23 @@ class VisualEngine:
         # Placed in top-right header safe zone (height * 0.08) to completely clear speaker's head/face
         if self.cfg.callouts_enabled and callouts:
             callout_y = int(height * 0.08)
-            card_h = max(32, int(height * 0.065))
-            font_size = max(14, int(height * 0.026))
-            accent_w = max(4, int(width * 0.005))
+            card_h = max(36, int(height * 0.070))
+            font_size = max(16, int(height * 0.029))
+            accent_w = max(6, int(width * 0.007))
+
+            # Detect best ultra-bold font file on system (Arial Black, Segoe UI Bold, or custom)
+            bold_font_param = "font='Arial:style=Bold'"
+            font_candidates = [
+                config.FONTS_DIR / "Montserrat-Black.ttf",
+                config.FONTS_DIR / "Inter-ExtraBold.ttf",
+                Path("C:/Windows/Fonts/ariblk.ttf"),      # Arial Black (Ultra-thick, modern punch)
+                Path("C:/Windows/Fonts/segoeuib.ttf"),    # Segoe UI Bold (Modern clean tech)
+                Path("C:/Windows/Fonts/arialbd.ttf"),     # Arial Bold
+            ]
+            for fc in font_candidates:
+                if fc.exists():
+                    bold_font_param = f"fontfile='{escape_filter_path(fc)}'"
+                    break
 
             for c in callouts:
                 st = c.start_time
@@ -485,32 +507,29 @@ class VisualEngine:
                 color = getattr(c, "color", "0x00F0FF")
 
                 # Proportional pill width based on character count with padding
-                est_tw = int(len(c.text) * font_size * 0.70)
-                card_w = max(int(width * 0.20), est_tw + int(width * 0.05))
+                est_tw = int(len(c.text) * font_size * 0.76)
+                card_w = max(int(width * 0.22), est_tw + int(width * 0.06))
                 card_x = width - card_w - int(width * 0.04)
 
-                # Damped harmonic spring physics: pill springs in from off-screen right with overshoot bounce
-                spring_dt = f"(t-{st:.2f})"
-                card_x_expr = f"if(lt(t,{st + 0.22:.2f}), {width} - ({card_w} + {int(width * 0.04)}) * (1.0 - exp(-9.0*{spring_dt}) * cos(13.0*{spring_dt})), {card_x})"
-                text_x_expr = f"{card_x_expr} + ({card_w} - tw)/2"
-                fade_exit = f"if(gt(t,{et - 0.16:.2f}), ({et:.2f}-t)/0.16, 1)"
+                fade_alpha = f"if(lt(t,{st + 0.15:.2f}), (t-{st:.2f})/0.15, if(gt(t,{et - 0.16:.2f}), ({et:.2f}-t)/0.16, 1))"
 
                 # Layer 1: Dark Obsidian Glass backdrop
                 filters.append(
-                    f"drawbox=x='{card_x_expr}':y={callout_y}:w={card_w}:h={card_h}:color=0x0b0f17@0.92:t=fill:enable='between(t,{st:.2f},{et:.2f})'"
+                    f"drawbox=x={card_x}:y={callout_y}:w={card_w}:h={card_h}:color=0x0b0f17@0.92:t=fill:enable='between(t,{st:.2f},{et:.2f})'"
                 )
                 # Layer 2: Glowing outline border (2px) in vibrant category neon
                 filters.append(
-                    f"drawbox=x='{card_x_expr}':y={callout_y}:w={card_w}:h={card_h}:color={color}@0.95:t=2:enable='between(t,{st:.2f},{et:.2f})'"
+                    f"drawbox=x={card_x}:y={callout_y}:w={card_w}:h={card_h}:color={color}@0.95:t=2:enable='between(t,{st:.2f},{et:.2f})'"
                 )
-                # Layer 3: Left solid accent bar (5px)
+                # Layer 3: Left solid accent bar (6px)
                 filters.append(
-                    f"drawbox=x='{card_x_expr}':y={callout_y}:w={accent_w}:h={card_h}:color={color}@1.0:t=fill:enable='between(t,{st:.2f},{et:.2f})'"
+                    f"drawbox=x={card_x}:y={callout_y}:w={accent_w}:h={card_h}:color={color}@1.0:t=fill:enable='between(t,{st:.2f},{et:.2f})'"
                 )
-                # Layer 4: Centered bold keyword in vibrant category color with drop shadow & smooth micro-fade exit
+                # Layer 4: Centered ultra-bold keyword with black border stroke and 3D drop shadow
                 filters.append(
-                    f"drawtext=text='{esc_c_text}':x='{text_x_expr}':y={callout_y}+({card_h}-th)/2:"
-                    f"fontsize={font_size}:fontcolor={color}:shadowcolor=black@0.85:shadowx=2:shadowy=2:alpha='{fade_exit}':enable='between(t,{st:.2f},{et:.2f})'"
+                    f"drawtext=text='{esc_c_text}':x={card_x}+({card_w}-tw)/2:y={callout_y}+({card_h}-th)/2:"
+                    f"{bold_font_param}:fontsize={font_size}:fontcolor=white:borderw=2:bordercolor=black@0.90:"
+                    f"shadowcolor=black@0.95:shadowx=2:shadowy=2:alpha='{fade_alpha}':enable='between(t,{st:.2f},{et:.2f})'"
                 )
 
         # 4. Check for valid B-roll metaphor cutaways (Animated 30fps .mov or High-Res PNG)

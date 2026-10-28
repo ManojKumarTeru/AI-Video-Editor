@@ -94,7 +94,7 @@ CREATOR_ELITE_KIT = ProductionKit(
         shadow_width=2,
         margin_bottom=70,
         kinetic_scale=120,
-        background_pill=True
+        background_pill=False
     ),
     grading=VisualGradeKit(
         contrast=1.015,
@@ -102,7 +102,7 @@ CREATOR_ELITE_KIT = ProductionKit(
         gamma=1.00,
         s_curve_str="0/0 0.25/0.235 0.75/0.775 1/1",
         vignette_angle="PI/14",
-        retention_bar_color="0x00F0FF"
+        retention_bar_color="0xFFD700"
     ),
     badges=BadgeKit(
         card_bg_alpha=0.90,
