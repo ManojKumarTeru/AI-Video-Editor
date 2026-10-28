@@ -40,6 +40,8 @@ AI-Editor transforms raw footage into fully polished, broadcast-grade **YouTube 
                         Closed GOP 2s, Automated QA validation)
 ```
 
+> 📖 **Looking for all commands, style kits, and format options?** Check out the full [**docs/CHEAT_SHEET.md**](file:///c:/Users/LENOVO%20T480/OneDrive/Desktop/AI-Editor/docs/CHEAT_SHEET.md).
+
 ---
 
 ## 🚀 Quick Start (3 Steps)
